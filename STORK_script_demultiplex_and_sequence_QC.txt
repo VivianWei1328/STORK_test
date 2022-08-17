@@ -1,0 +1,73 @@
+“Copyright © 2022 The Trustees of Columbia University in the City of New York. All Rights Reserved.”
+####### This is the data analysis pipeline to perform demultiplex and sequence QC on  
+####### rapid nanopore short-read sequencing data. 
+####### The pipeline can be run at 10-min interval or 
+####### after the run data are sufficient for analysis
+
+
+####### The data analysis pipeline is provided for academic and non-commercial use only. 
+####### For a complete package of using STORK rapid nanopore short-read sequencing to perform aneuploidy testing, 
+####### and additional technical support, 
+####### please contact corresponding author Dr. Zev Williams (zw2421@cumc.columbia.edu). 
+
+
+############### before you start: 
+############### replace the {path to fastq_pass folder}
+############### replace the {name of the run} 
+############### replace the {path to STORK supple. files}
+############### locate {path to GRCh37 Bowtie2 Index} on local computer and on HPC
+
+
+cd {path to fastq_pass folder} 
+pwd 
+
+time gunzip *.fastq.gz
+rm {name of the run}.fastq
+touch {name of the run}.fastq
+
+############### Use the actual number of fastq files in the folder 
+############### Replace 573 with the actual number of fastq files 
+############### e.g., {0..100};{101..200}; etc 
+
+
+time for i in {0..573}; do echo *_$i.fastq; cat *_$i.fastq >> {name of the run}.fastq; done
+
+wc -l {name of the run}.fastq 
+ 
+time for f in {name of the run}.fastq; do echo $f; grep -A1 "read" $f | sed -e 's/^@/>/g' -e '/--/d' > ${f%.fastq}.fasta; done
+
+time gzip *.fastq
+cp {path to STORK supple. files}/Vbarcores.top.21.fasta .
+
+
+
+################ Demultiplex samples in a run ##################################
+
+###### This demultiplex setting has FDR of 0.1%. It's the setting used in STORK aneuploidy testing
+time cutadapt -g file:Vbarcores.top.21.fasta -O 20 -e 0.2 -m 150 -o {name of the run}.{name}.cut2.21.m150.fasta {name of the run}.fasta >{name of the run}.cut2.21.m150.log
+
+wc -l {name of the run}.V*.cut2.21.m150.fasta
+      
+###### This demultiplex setting has FDR of 0.01%. It can be used in other customized assays. 
+time cutadapt -g file:Vbarcores.top.21.fasta -O 20 -e 0.15 -m 150 -o {name of the run}.{name}.cut1.21.m150.fasta {name of the run}.fasta >{name of the run}.cut1.21.m150.log
+
+
+for f in {name of the run}.V??.cut2.21.m150.fasta; do echo $f; head -220000 $f > ${f%.fasta}.110K.fasta; wc -l ${f%.fasta}.110K.fasta; done
+
+############### remove the demultiplexed files from unused barcodes. 
+rm {name of the run}.V13.cut2.21.m150.fasta
+rm {name of the run}.V14.cut2.21.m150.fasta
+rm {name of the run}.V15.cut2.21.m150.fasta
+
+################  Trim the adaptors and save up to 400bp 
+time for f in {name of the run}.V*.cut2.21.m150.110K.fasta ; do echo $f; awk '{if ($1~">") {print $0}}; {if ($1!~">") {print substr($0,50,length($0)-100);}}' $f |  awk '{if ($1~">") {print $0}}; {if ($1!~">"){print substr($0,0,400);}}' > ${f%.fasta}.trim.400bp.fasta; wc -l ${f%.fasta}.trim.400bp.fasta; done
+
+for f in {name of the run}.V??.cut2.21.m150.110K.fasta; do echo $f; samtools faidx $f; cut -f2 $f.fai | Rscript -e 'data <- as.numeric (readLines ("stdin")); summary(data); hist(data, breaks=2000)'; mv Rplots.pdf $f.pdf; done
+
+for f in {name of the run}.V??.cut2.21.m150.110K.fasta; do echo $f; cut -f2 $f.fai | Rscript -e 'data <- as.numeric (readLines ("stdin")); summary(data); hist(data, breaks=2000)'; mv Rplots.pdf $f.pdf; done >{name of the run}.QC.list
+ 
+Echo "Read length summary:"
+cat {name of the run}.QC.list
+awk '$0~"Min" {getline; print $0;}' {name of the run}.QC.list
+
+
