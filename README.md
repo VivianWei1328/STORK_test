@@ -1,4 +1,4 @@
-# STORK_test for 
+# STORK_test
 Rapid Nanopore Sequencing–Based Screen for Aneuploidy in Reproductive Care
 Code for STORK analysis.
 The analysis pipeline is available upon request for non-commercial use. 
